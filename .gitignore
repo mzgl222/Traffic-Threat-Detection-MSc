@@ -1,1 +1,10 @@
 .DS_Store
+\models
+\data
+\outputs
+\.venv
+\traffic_safety/__pycache__
+TODO.md
+requirements.txt
+\configs
+\scripts/homography_points.yaml
