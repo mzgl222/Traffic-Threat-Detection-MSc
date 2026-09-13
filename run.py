@@ -11,8 +11,9 @@ from traffic_safety.homography import HomographyTransformer
 from traffic_safety.pipeline import TrafficSafetyPipeline
 from traffic_safety.speed import SpeedEstimator
 from traffic_safety.trajectory import TrajectoryStore
+from traffic_safety.zones import ZoneManager
 
-CURRENT_CONFIGURATION = "configs/prymasa_ext.yaml"
+CURRENT_CONFIGURATION = "configs/wts.yaml"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -173,6 +174,14 @@ def main():
         "Trajectory store ready"
     )
 
+    logger.info("Creating zone manager...")
+
+    zone_manager = ZoneManager(
+        config["zones"]
+    )
+
+    logger.info("Zone manager ready")
+
     logger.info(
         "Creating processing pipeline..."
     )
@@ -182,6 +191,7 @@ def main():
         homography=homography,
         speed_estimator=speed_estimator,
         trajectory_store=trajectory_store,
+        zone_manager=zone_manager,
     )
 
     logger.info(
@@ -347,6 +357,16 @@ def main():
                 # Visualization
                 # ---------------------------------------------
 
+                for zone in zone_manager.get_all():
+                    cv2.polylines(
+                        frame,
+                        [zone.polygon],
+                        isClosed=True,
+                        color=(255, 0, 255),
+                        thickness=2,
+                    )
+                
+
                 for obj in objects:
                     x1, y1, x2, y2 = (
                         obj.bbox
@@ -411,6 +431,11 @@ def main():
                         )
 
                     # Label
+                    zone_text = (
+                        obj.zone
+                        if obj.zone is not None
+                        else "outside"
+                    )
                     if (
                         obj.speed_kmh
                         is not None
@@ -419,13 +444,15 @@ def main():
                             f"{obj.class_name} "
                             f"#{obj.track_id} | "
                             f"{obj.speed_kmh:.1f} "
-                            f"km/h"
+                            f"km/h | "
+                            f"{zone_text}"
                         )
 
                     else:
                         label = (
                             f"{obj.class_name} "
-                            f"#{obj.track_id}"
+                            f"#{obj.track_id} | "
+                            f"{zone_text}"
                         )
 
                     cv2.putText(

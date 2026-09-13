@@ -7,6 +7,7 @@ from traffic_safety.trajectory import (
     TrajectoryPoint,
     TrajectoryStore,
 )
+from traffic_safety.zones import ZoneManager
 
 
 @dataclass
@@ -31,6 +32,8 @@ class ProcessedObject:
 
     trajectory: list[TrajectoryPoint]
 
+    zone: str | None
+
 
 class TrafficSafetyPipeline:
     def __init__(
@@ -39,16 +42,18 @@ class TrafficSafetyPipeline:
         homography: HomographyTransformer,
         speed_estimator: SpeedEstimator,
         trajectory_store: TrajectoryStore,
+        zone_manager: ZoneManager
     ):
         self.tracker = tracker
         self.homography = homography
         self.speed_estimator = speed_estimator
         self.trajectory_store = trajectory_store
-
+        self.zone_manager = zone_manager
     def process_frame(
         self,
         frame,
         timestamp: float,
+
     ) -> list[ProcessedObject]:
 
         tracked_objects = self.tracker.process(frame)
@@ -59,6 +64,11 @@ class TrafficSafetyPipeline:
             image_x, image_y = obj.contact_point
 
             world_x, world_y = self.homography.image_to_world(
+                image_x,
+                image_y,
+            )
+
+            zone = self.zone_manager.get_zone(
                 image_x,
                 image_y,
             )
@@ -108,6 +118,7 @@ class TrafficSafetyPipeline:
                     world_y=world_y,
                     speed_kmh=speed_kmh,
                     trajectory=trajectory,
+                    zone=zone,
                 )
             )
 
