@@ -13,6 +13,7 @@ from traffic_safety.speed import SpeedEstimator
 from traffic_safety.trajectory import TrajectoryStore
 from traffic_safety.zones import ZoneManager
 from traffic_safety.state import StateEstimator
+from traffic_safety.risk_metrics import RiskMetricsEstimator
 
 CURRENT_CONFIGURATION = "configs/wts.yaml"
 
@@ -156,7 +157,8 @@ def main():
     )
 
     speed_estimator = SpeedEstimator(
-        history_length=config["tracking"]["history_length"]
+        history_length=config["tracking"]["history_length"],
+        speed_history_length=config["tracking"]["speed_history_length"]
     )
 
     logger.info(
@@ -202,6 +204,27 @@ def main():
         "State estimator ready"
     )
 
+    crosswalk_reference_line_image = [
+        tuple(point)
+        for point in config[
+            "crosswalk"
+        ]["reference_line_image"]
+    ]
+
+    logger.info(
+        "Creating risk metrics estimator..."
+    )
+
+    risk_metrics_estimator = RiskMetricsEstimator(
+        history_window_s=0.7,
+        min_samples=5,
+        min_closing_speed_m_s=0.5,
+    )
+
+    logger.info(
+        "Risk metrics estimator ready"
+    )
+
     pipeline = TrafficSafetyPipeline(
         tracker=tracker,
         homography=homography,
@@ -209,6 +232,9 @@ def main():
         trajectory_store=trajectory_store,
         zone_manager=zone_manager,
         state_estimator=state_estimator,
+        crosswalk_reference_line_image=crosswalk_reference_line_image,
+        risk_metrics_estimator=risk_metrics_estimator,
+
     )
 
     logger.info(
@@ -459,27 +485,50 @@ def main():
                         if obj.state is not None
                         else "unknown"
                     )
+                    parts = [
+                        f"{obj.class_name} #{obj.track_id}",
+                        zone_text,
+                        state_text,
+                    ]
 
-                    if (
-                        obj.speed_kmh
-                        is not None
-                    ):
-                        label = (
-                            f"{obj.class_name} "
-                            f"#{obj.track_id} | "
-                            f"{obj.speed_kmh:.1f} "
-                            f"km/h | "
-                            f"{zone_text} | "
-                            f"{state_text}"
-                        )
+                    if obj.category == "vehicle":
+                        if obj.speed_kmh is not None:
+                            parts.append(
+                                f"{obj.speed_kmh:.1f} km/h"
+                            )
 
-                    else:
-                        label = (
-                            f"{obj.class_name} "
-                            f"#{obj.track_id} | "
-                            f"{zone_text} | "
-                            f"{state_text}"
-                        )
+                        if obj.distance_to_crosswalk_m is not None:
+                            parts.append(
+                                f"{obj.distance_to_crosswalk_m:.1f} m"
+                            )
+
+                        if obj.ttc_crosswalk_s is not None:
+                            parts.append(
+                                f"TTC {obj.ttc_crosswalk_s:.1f} s"
+                            )
+
+                    label = " | ".join(parts)
+
+                    # if (
+                    #     obj.speed_kmh
+                    #     is not None
+                    # ):
+                    #     label = (
+                    #         f"{obj.class_name} "
+                    #         f"#{obj.track_id} | "
+                    #         f"{obj.speed_kmh:.1f} "
+                    #         f"km/h | "
+                    #         f"{zone_text} | "
+                    #         f"{state_text}"
+                    #     )
+
+                    # else:
+                    #     label = (
+                    #         f"{obj.class_name} "
+                    #         f"#{obj.track_id} | "
+                    #         f"{zone_text} | "
+                    #         f"{state_text}"
+                    #     )
                     
 
                     cv2.putText(

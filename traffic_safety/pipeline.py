@@ -9,7 +9,7 @@ from traffic_safety.trajectory import (
 )
 from traffic_safety.zones import ZoneManager
 from traffic_safety.state import StateEstimator
-
+from traffic_safety.risk_metrics import RiskMetricsEstimator, distance_to_line
 
 @dataclass
 class ProcessedObject:
@@ -35,6 +35,8 @@ class ProcessedObject:
 
     zone: str | None
     state: str | None
+    distance_to_crosswalk_m: float | None
+    ttc_crosswalk_s: float | None
 
 
 class TrafficSafetyPipeline:
@@ -45,7 +47,11 @@ class TrafficSafetyPipeline:
         speed_estimator: SpeedEstimator,
         trajectory_store: TrajectoryStore,
         zone_manager: ZoneManager,
-        state_estimator: StateEstimator
+        state_estimator: StateEstimator,
+        crosswalk_reference_line_image,
+        risk_metrics_estimator: RiskMetricsEstimator,
+        
+        
     ):
         self.tracker = tracker
         self.homography = homography
@@ -53,6 +59,26 @@ class TrafficSafetyPipeline:
         self.trajectory_store = trajectory_store
         self.zone_manager = zone_manager
         self.state_estimator = state_estimator
+        self.crosswalk_reference_line_image = crosswalk_reference_line_image
+        self.risk_metrics_estimator = risk_metrics_estimator
+        start_image, end_image = (
+            self.crosswalk_reference_line_image
+        )
+
+        start_world = self.homography.image_to_world(
+            start_image[0],
+            start_image[1],
+        )
+
+        end_world = self.homography.image_to_world(
+            end_image[0],
+            end_image[1],
+        )
+
+        self.crosswalk_reference_line_world = (
+            start_world,
+            end_world,
+        )
 
     def process_frame(
         self,
@@ -111,6 +137,8 @@ class TrafficSafetyPipeline:
             # ---------------------------------------------
 
             speed_kmh = None
+            distance_to_crosswalk_m = None
+            ttc_crosswalk_s = None
 
             if obj.category == "vehicle":
                 speed_kmh = self.speed_estimator.update(
@@ -119,6 +147,16 @@ class TrafficSafetyPipeline:
                     world_x=world_x,
                     world_y=world_y,
                 )
+                if zone == "vehicle_approach":
+
+                    line_start, line_end = self.crosswalk_reference_line_world
+                    distance_to_crosswalk_m = distance_to_line(world_x, world_y,line_start, line_end)
+                    ttc_crosswalk_s = self.risk_metrics_estimator.update_ttc(
+                        track_id=obj.track_id,
+                        timestamp=timestamp,
+                        distance_to_crosswalk_m=distance_to_crosswalk_m,
+                    )
+
 
             # ---------------------------------------------
             # Create processed object
@@ -139,6 +177,8 @@ class TrafficSafetyPipeline:
                 trajectory=trajectory,
                 zone=zone,
                 state=None,
+                distance_to_crosswalk_m=distance_to_crosswalk_m,
+                ttc_crosswalk_s=ttc_crosswalk_s,
             )
 
             # ---------------------------------------------

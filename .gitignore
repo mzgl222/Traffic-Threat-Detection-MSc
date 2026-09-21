@@ -8,3 +8,4 @@ TODO.md
 requirements.txt
 \configs
 \scripts/homography_points.yaml
+\scripts/speed_simple.py
