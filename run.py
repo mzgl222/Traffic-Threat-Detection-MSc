@@ -12,6 +12,7 @@ from traffic_safety.pipeline import TrafficSafetyPipeline
 from traffic_safety.speed import SpeedEstimator
 from traffic_safety.trajectory import TrajectoryStore
 from traffic_safety.zones import ZoneManager
+from traffic_safety.state import StateEstimator
 
 CURRENT_CONFIGURATION = "configs/wts.yaml"
 
@@ -185,6 +186,18 @@ def main():
     logger.info(
         "Creating processing pipeline..."
     )
+    logger.info(
+    "Creating state estimator..."
+    )
+
+    state_estimator = StateEstimator(
+        stopped_speed_threshold=2.0,
+        slowing_threshold=-2.0,
+    )
+
+    logger.info(
+        "State estimator ready"
+    )
 
     pipeline = TrafficSafetyPipeline(
         tracker=tracker,
@@ -192,6 +205,7 @@ def main():
         speed_estimator=speed_estimator,
         trajectory_store=trajectory_store,
         zone_manager=zone_manager,
+        state_estimator=state_estimator,
     )
 
     logger.info(
@@ -436,6 +450,13 @@ def main():
                         if obj.zone is not None
                         else "outside"
                     )
+
+                    state_text = (
+                        obj.state
+                        if obj.state is not None
+                        else "unknown"
+                    )
+
                     if (
                         obj.speed_kmh
                         is not None
@@ -445,15 +466,18 @@ def main():
                             f"#{obj.track_id} | "
                             f"{obj.speed_kmh:.1f} "
                             f"km/h | "
-                            f"{zone_text}"
+                            f"{zone_text} | "
+                            f"{state_text}"
                         )
 
                     else:
                         label = (
                             f"{obj.class_name} "
                             f"#{obj.track_id} | "
-                            f"{zone_text}"
+                            f"{zone_text} | "
+                            f"{state_text}"
                         )
+                    
 
                     cv2.putText(
                         frame,
