@@ -193,6 +193,9 @@ def main():
     state_estimator = StateEstimator(
         stopped_speed_threshold=2.0,
         slowing_threshold=-2.0,
+        state_confirm_frames=3,
+        stopped_confirm_frames=5,
+        speed_history_length=6,
     )
 
     logger.info(
