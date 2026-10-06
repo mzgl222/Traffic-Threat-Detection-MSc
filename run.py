@@ -14,6 +14,7 @@ from traffic_safety.trajectory import TrajectoryStore
 from traffic_safety.zones import ZoneManager
 from traffic_safety.state import StateEstimator
 from traffic_safety.risk_metrics import RiskMetricsEstimator
+from traffic_safety.csv_writer import CsvResultWriter
 
 CURRENT_CONFIGURATION = "configs/wts.yaml"
 
@@ -241,6 +242,18 @@ def main():
         "Pipeline initialized successfully"
     )
 
+    logger.info(
+    "Creating CSV result writer..."
+    )
+
+    csv_writer = CsvResultWriter(
+        config["data_output"]["csv"]
+    )
+
+    logger.info(
+        "CSV result writer ready"
+    )
+
     # ---------------------------------------------------------
     # Open input video
     # ---------------------------------------------------------
@@ -383,7 +396,7 @@ def main():
                     frame_idx / fps
                 )
 
-                frame_idx += 1
+                
 
                 # ---------------------------------------------
                 # Pipeline
@@ -395,6 +408,13 @@ def main():
                         timestamp,
                     )
                 )
+                csv_writer.write_frame(
+                    frame_idx=frame_idx,
+                    timestamp=timestamp,
+                    objects=objects,
+                )
+
+                frame_idx += 1
 
                 # ---------------------------------------------
                 # Visualization
@@ -626,6 +646,7 @@ def main():
     finally:
         cap.release()
         writer.release()
+        csv_writer.close()
         cv2.destroyAllWindows()
 
     logger.info(
