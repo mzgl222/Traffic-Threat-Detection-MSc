@@ -7,6 +7,7 @@ import yaml
 
 
 WINDOW_NAME = "Homography point selector"
+DEFAULT_INPUT = "data/scenario1.mp4"
 
 # Punkty w oryginalnej rozdzielczości obrazu
 points: list[tuple[int, int]] = []
@@ -25,6 +26,8 @@ def parse_args():
 
     parser.add_argument(
         "input",
+        nargs="?",
+        default=DEFAULT_INPUT,
         help="Path to an image or video file."
     )
 

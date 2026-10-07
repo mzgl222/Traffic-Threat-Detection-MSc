@@ -15,6 +15,9 @@ from traffic_safety.zones import ZoneManager
 from traffic_safety.state import StateEstimator
 from traffic_safety.risk_metrics import RiskMetricsEstimator
 from traffic_safety.csv_writer import CsvResultWriter
+from traffic_safety.safety_rules import SafetyRuleEngine
+from traffic_safety.risk_event_writer import RiskEventCsvWriter
+from traffic_safety.risk_timeline_writer import RiskTimelineCsvWriter
 
 CURRENT_CONFIGURATION = "configs/wts.yaml"
 
@@ -73,6 +76,21 @@ def draw_trajectory(frame, obj, color):
             2,
         )
 
+def get_frame_risk_level(risk_events) -> str:
+    if any(
+        event.level.value == "danger"
+        for event in risk_events
+    ):
+        return "danger"
+
+    if any(
+        event.level.value == "warning"
+        for event in risk_events
+    ):
+        return "warning"
+
+    return "ok"
+
 def main():
     logger.info("Starting traffic safety pipeline")
 
@@ -85,6 +103,20 @@ def main():
     config = load_config(CURRENT_CONFIGURATION)
 
     logger.info("Configuration loaded")
+
+    logger.info(
+    "Creating safety rule engine..."
+    )
+
+    safety_rule_engine = SafetyRuleEngine(
+        warning_ttc_s=config["risk"]["warning_ttc_s"],
+        danger_ttc_s=config["risk"]["danger_ttc_s"],
+        fallback_distance_m=config["risk"]["fallback_distance_m"],
+    )
+
+    logger.info(
+        "Safety rule engine ready"
+    )
 
     # ---------------------------------------------------------
     # Configuration
@@ -243,7 +275,7 @@ def main():
     )
 
     logger.info(
-    "Creating CSV result writer..."
+        "Creating CSV result writer..."
     )
 
     csv_writer = CsvResultWriter(
@@ -252,6 +284,30 @@ def main():
 
     logger.info(
         "CSV result writer ready"
+    )
+
+    logger.info(
+        "Creating risk event CSV writer..."
+    )
+
+    risk_event_writer = RiskEventCsvWriter(
+        config["data_output"]["risk_csv"]
+    )
+
+    logger.info(
+        "Risk event CSV writer ready"
+    )
+
+    logger.info(
+        "Creating risk timeline CSV writer..."
+    )
+
+    risk_timeline_writer = RiskTimelineCsvWriter(
+        config["data_output"]["risk_timeline_csv"]
+    )
+
+    logger.info(
+        "Risk timeline CSV writer ready"
     )
 
     # ---------------------------------------------------------
@@ -408,10 +464,29 @@ def main():
                         timestamp,
                     )
                 )
+                risk_events = safety_rule_engine.evaluate(
+                    objects
+                )
                 csv_writer.write_frame(
                     frame_idx=frame_idx,
                     timestamp=timestamp,
                     objects=objects,
+                )
+
+                risk_event_writer.write_frame(
+                    frame_idx=frame_idx,
+                    timestamp=timestamp,
+                    events=risk_events,
+                )
+                frame_risk_level = get_frame_risk_level(
+                    risk_events
+                )
+
+                risk_timeline_writer.write_frame(
+                    frame_idx=frame_idx,
+                    timestamp=timestamp,
+                    risk_level=frame_risk_level,
+                    risk_events=risk_events,
                 )
 
                 frame_idx += 1
@@ -567,6 +642,27 @@ def main():
                         2,
                     )
 
+                for event in risk_events:
+                    text = (
+                        f"{event.level.value.upper()} | "
+                        f"person #{event.pedestrian_id} "
+                        f"<-> car #{event.vehicle_id}"
+                    )
+
+                    cv2.putText(
+                        frame,
+                        text,
+                        (30, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.8,
+                        (
+                            (0, 0, 255)
+                            if event.level.value == "danger"
+                            else (0, 165, 255)
+                        ),
+                        2,
+                    )
+
                 # ---------------------------------------------
                 # Counters
                 # ---------------------------------------------
@@ -647,6 +743,8 @@ def main():
         cap.release()
         writer.release()
         csv_writer.close()
+        risk_event_writer.close()
+        risk_timeline_writer.close()
         cv2.destroyAllWindows()
 
     logger.info(
