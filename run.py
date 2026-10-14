@@ -18,6 +18,7 @@ from traffic_safety.csv_writer import CsvResultWriter
 from traffic_safety.safety_rules import SafetyRuleEngine
 from traffic_safety.risk_event_writer import RiskEventCsvWriter
 from traffic_safety.risk_timeline_writer import RiskTimelineCsvWriter
+from traffic_safety.interaction_writer import InteractionCsvWriter
 
 CURRENT_CONFIGURATION = "configs/wts.yaml"
 
@@ -310,6 +311,23 @@ def main():
         "Risk timeline CSV writer ready"
     )
 
+    study_metadata = config["study_metadata"]
+
+    interaction_writer = InteractionCsvWriter(
+        output_path=config["data_output"]["interactions_csv"],
+        frame_metadata_path=config["data_output"][
+            "interaction_frames_csv"
+        ],
+        video_id=study_metadata["video_id"],
+        scene_id=study_metadata["scene_id"],
+        source_event_id=study_metadata["source_event_id"],
+        camera_id=study_metadata["camera_id"],
+    )
+
+    logger.info(
+        "Interaction CSV writer ready"
+    )
+
     # ---------------------------------------------------------
     # Open input video
     # ---------------------------------------------------------
@@ -466,6 +484,13 @@ def main():
                 )
                 risk_events = safety_rule_engine.evaluate(
                     objects
+                )
+                interaction_writer.write_frame(
+                    frame_idx=frame_idx,
+                    timestamp_s=timestamp,
+                    objects=objects,
+                    risk_events=risk_events,
+                    pipeline_ok=True,
                 )
                 csv_writer.write_frame(
                     frame_idx=frame_idx,
@@ -745,6 +770,7 @@ def main():
         csv_writer.close()
         risk_event_writer.close()
         risk_timeline_writer.close()
+        interaction_writer.close()
         cv2.destroyAllWindows()
 
     logger.info(
