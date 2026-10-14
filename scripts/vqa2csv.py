@@ -1,23 +1,82 @@
+import argparse
 import json
-import pandas as pd
+import sys
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import pandas as pd
+import yaml
+
+from settings import CURRENT_CONFIGURATION
 
 # =========================
 # USTAWIENIA
 # =========================
 
-JSON_PATH = "data/vqa/20230707_19_CN8_T1.json"
 FPS = 30
 
-CSV_OUTPUT = "outputs/vqa_timelines/phases_per_frame.csv"
-PLOT_OUTPUT = "outputs/vqa_timelines/phases_plot.png"
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Convert VQA event phases to per-frame CSV and plot."
+    )
+
+    parser.add_argument(
+        "--config",
+        default=CURRENT_CONFIGURATION,
+        help="Path to YAML config with a 'vqa' section.",
+    )
+
+    return parser.parse_args()
+
+
+def load_vqa_paths(config_path: str) -> tuple[str, str, str]:
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    vqa = config.get("vqa")
+
+    if not isinstance(vqa, dict):
+        raise ValueError(
+            f"Missing 'vqa' section in {config_path}"
+        )
+
+    missing = [
+        key
+        for key in ("vqa_input", "vqa_csv", "vqa_plot")
+        if not vqa.get(key)
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Missing keys in 'vqa' of {config_path}: "
+            f"{', '.join(missing)}"
+        )
+
+    return (
+        vqa["vqa_input"],
+        vqa["vqa_csv"],
+        vqa["vqa_plot"],
+    )
+
+
+args = parse_args()
+
+vqa_input, vqa_csv, vqa_plot = load_vqa_paths(args.config)
+
+# Tworzymy katalogi wyjściowe, jeśli nie istnieją
+Path(vqa_csv).parent.mkdir(parents=True, exist_ok=True)
+Path(vqa_plot).parent.mkdir(parents=True, exist_ok=True)
+
+print(f"Config: {args.config}")
+print(f"Wczytywanie: {vqa_input}")
 
 
 # =========================
 # WCZYTANIE JSON
 # =========================
 
-with open(JSON_PATH, "r", encoding="utf-8") as f:
+with open(vqa_input, "r", encoding="utf-8") as f:
     data = json.load(f)
 
 # W tym zbiorze główny obiekt jest listą
@@ -91,9 +150,9 @@ df = pd.DataFrame({
     "phase": list(frames.values())
 })
 
-df.to_csv(CSV_OUTPUT, index=False)
+df.to_csv(vqa_csv, index=False)
 
-print(f"Zapisano CSV: {CSV_OUTPUT}")
+print(f"Zapisano CSV: {vqa_csv}")
 print()
 print(df.head(20))
 
@@ -126,7 +185,7 @@ plt.title("Faza zdarzenia w zależności od numeru klatki")
 plt.grid(axis="x", alpha=0.3)
 
 plt.tight_layout()
-plt.savefig(PLOT_OUTPUT, dpi=300)
+plt.savefig(vqa_plot, dpi=300)
 plt.show()
 
-print(f"Zapisano wykres: {PLOT_OUTPUT}")
+print(f"Zapisano wykres: {vqa_plot}")

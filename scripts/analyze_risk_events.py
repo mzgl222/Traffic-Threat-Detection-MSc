@@ -3,8 +3,9 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import yaml
 
-DEFAULT_CSV = "outputs/scenario_risk_events.csv"
+from settings import CURRENT_CONFIGURATION
 
 RISK_NUMERIC = {
     "safe": 0,
@@ -21,19 +22,56 @@ def parse_args():
     )
 
     parser.add_argument(
-        "csv",
-        nargs="?",
-        default=DEFAULT_CSV,
-        help="Path to risk events CSV.",
+        "--config",
+        # required=True,
+        default=CURRENT_CONFIGURATION,
+        help="Path to YAML config with a 'data_output' section.",
+    )
+
+    parser.add_argument(
+        "--csv",
+        default=None,
+        help="Override: path to risk events CSV (default: data_output.risk_csv).",
     )
 
     parser.add_argument(
         "--output-dir",
-        default="outputs/risk_analysis",
-        help="Directory for generated plots.",
+        default=None,
+        help="Override: directory for generated plots (default: data_output.plots).",
     )
 
     return parser.parse_args()
+
+
+def load_config_paths(
+    config_path: str,
+) -> tuple[str, str]:
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    data_output = config.get("data_output")
+
+    if not isinstance(data_output, dict):
+        raise ValueError(
+            f"Missing 'data_output' section in {config_path}"
+        )
+
+    missing = [
+        key
+        for key in ("risk_csv", "plots")
+        if not data_output.get(key)
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Missing keys in 'data_output' of {config_path}: "
+            f"{', '.join(missing)}"
+        )
+
+    return (
+        data_output["risk_csv"],
+        data_output["plots"],
+    )
 
 
 def load_data(
@@ -330,8 +368,14 @@ def print_summary(
 def main():
     args = parse_args()
 
+    config_csv, config_output_dir = load_config_paths(
+        args.config
+    )
+
+    csv_path = args.csv or config_csv
+
     output_dir = Path(
-        args.output_dir
+        args.output_dir or config_output_dir
     )
 
     output_dir.mkdir(
@@ -340,11 +384,15 @@ def main():
     )
 
     print(
-        f"Loading: {args.csv}"
+        f"Config: {args.config}"
+    )
+
+    print(
+        f"Loading: {csv_path}"
     )
 
     df = load_data(
-        args.csv
+        csv_path
     )
 
     print_summary(
