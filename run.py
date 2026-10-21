@@ -20,7 +20,13 @@ from traffic_safety.risk_event_writer import RiskEventCsvWriter
 from traffic_safety.risk_timeline_writer import RiskTimelineCsvWriter
 from traffic_safety.interaction_writer import InteractionCsvWriter
 
-CURRENT_CONFIGURATION = "configs/20230707_12_SN17_T1.yaml"
+# CURRENT_CONFIGURATION = "configs/20230707_12_SN17_T1.yaml"
+# CURRENT_CONFIGURATION = "configs/20230707_19_CN8_T1.yaml"
+# CURRENT_CONFIGURATION = "configs/20230922_37_CN9_T1.yaml"
+CURRENT_CONFIGURATION = "configs/20230922_42_CN37_T1.yaml"
+
+
+
 
 logging.basicConfig(
     level=logging.INFO,

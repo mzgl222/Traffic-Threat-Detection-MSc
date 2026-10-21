@@ -7,7 +7,9 @@ import yaml
 
 
 WINDOW_NAME = "Homography point selector"
-DEFAULT_INPUT = "data/scenario1.mp4"
+# DEFAULT_INPUT = "data/20230707_19_CN8_T1.mp4"
+DEFAULT_INPUT = "data/20230922_37_CN9_T1.mp4"
+
 
 # Punkty w oryginalnej rozdzielczości obrazu
 points: list[tuple[int, int]] = []
@@ -18,6 +20,24 @@ display_scale = 1.0
 original_frame = None
 display_frame = None
 
+class IndentedDumper(yaml.SafeDumper):
+    """
+    SafeDumper, który wcina elementy listy pod kluczem
+    (zamiast stawiać '-' na tym samym poziomie co klucz).
+    """
+    def increase_indent(self, flow=False, indentless=False):
+        return super().increase_indent(flow, False)
+
+
+def dump_yaml(data, stream=None):
+    return yaml.dump(
+        data,
+        stream,
+        Dumper=IndentedDumper,
+        default_flow_style=None,
+        sort_keys=False,
+        allow_unicode=True,
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -341,28 +361,23 @@ def save_config(
         exist_ok=True
     )
 
-    with output.open(
-        "w",
-        encoding="utf-8"
-    ) as file:
-        yaml.safe_dump(
-            config,
-            file,
-            sort_keys=False,
-            allow_unicode=True
-        )
+    # with output.open("w", encoding="utf-8") as file:
+    #     yaml.safe_dump(config, file, sort_keys=False, allow_unicode=True)
+
+    # print()
+    # print(f"Saved configuration to: {output}")
+    # print()
+
+    # print(yaml.safe_dump(config, sort_keys=False, allow_unicode=True))
+
+    with output.open("w", encoding="utf-8") as file:
+        dump_yaml(config, file)
 
     print()
     print(f"Saved configuration to: {output}")
     print()
 
-    print(
-        yaml.safe_dump(
-            config,
-            sort_keys=False,
-            allow_unicode=True
-        )
-    )
+    print(dump_yaml(config))
 
 
 def main():

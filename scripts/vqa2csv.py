@@ -186,6 +186,6 @@ plt.grid(axis="x", alpha=0.3)
 
 plt.tight_layout()
 plt.savefig(vqa_plot, dpi=300)
-plt.show()
+plt.close()
 
 print(f"Zapisano wykres: {vqa_plot}")
