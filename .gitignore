@@ -10,4 +10,4 @@ requirements.txt
 \scripts/homography_points.yaml
 \scripts/speed_simple.py
 \__pycache__
-\scripts/settings.py
+scripts/settings.py
