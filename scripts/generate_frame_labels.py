@@ -18,7 +18,7 @@ import yaml
 
 from settings import CURRENT_CONFIGURATION
 
-OVERWRITE = False  # set to True to replace an existing output file
+OVERWRITE = True  # set to True to replace an existing output file
 
 
 def load_config_paths(config_path: str) -> dict[str, str]:

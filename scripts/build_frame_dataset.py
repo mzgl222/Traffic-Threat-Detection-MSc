@@ -185,19 +185,26 @@ def main() -> None:
             raise ValueError('Missing rule predictions for some frames')
         result['rule_pred'] = result['rule_pred'].astype('int64')
 
-    # Independent ground truth; optional until annotations are available.
-    if paths["labels"]:
-        labels = read_csv(paths["labels"])
-        require(labels, ['video_id','frame_idx','risk_gt'], 'labels')
-        verify_unique(labels, ['video_id','frame_idx'], 'labels')
-        vals = pd.to_numeric(labels['risk_gt'], errors='coerce')
-        if not vals.dropna().isin([0,1]).all():
-            raise ValueError('risk_gt must contain 0, 1, or missing values')
-        labels['risk_gt'] = vals.astype('Int64')
-        result = result.merge(labels[['video_id','frame_idx','risk_gt']],
-                              on=['video_id','frame_idx'], how='left', validate='one_to_one')
-    else:
-        result['risk_gt'] = pd.Series(pd.NA, index=result.index, dtype='Int64')
+    # # Independent ground truth; optional until annotations are available.
+    # if paths["labels"]:
+    #     labels = read_csv(paths["labels"])
+    #     require(labels, ['video_id','frame_idx','risk_gt'], 'labels')
+    #     verify_unique(labels, ['video_id','frame_idx'], 'labels')
+    #     vals = pd.to_numeric(labels['risk_gt'], errors='coerce')
+    #     if not vals.dropna().isin([0,1]).all():
+    #         raise ValueError('risk_gt must contain 0, 1, or missing values')
+    #     labels['risk_gt'] = vals.astype('Int64')
+    #     result = result.merge(labels[['video_id','frame_idx','risk_gt']],
+    #                           on=['video_id','frame_idx'], how='left', validate='one_to_one')
+    # else:
+    #     result['risk_gt'] = pd.Series(pd.NA, index=result.index, dtype='Int64')
+
+    # Ground truth is generated separately and joined in the ML notebook.
+    result['risk_gt'] = pd.Series(
+        pd.NA,
+        index=result.index,
+        dtype='Int64'
+    )
 
     # Do not silently interpret failed pipeline frames as true zero-object scenes.
     # Such records are retained but should be excluded from standard training.

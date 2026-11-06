@@ -13,7 +13,8 @@ skrypty = ["analyze_tracks.py",
            "analyze_risk_timeline.py", 
            "vqa2csv.py", 
            "overlay_risk_phases.py", 
-           "build_frame_dataset.py"
+           "build_frame_dataset.py",
+           "generate_frame_labels.py",
            ]
 
 for skrypt in skrypty:
