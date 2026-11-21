@@ -1,4 +1,5 @@
 from pathlib import Path
+import argparse
 import subprocess
 import logging
 from tqdm import tqdm
@@ -15,10 +16,25 @@ from traffic_safety.zones import ZoneManager
 from traffic_safety.state import StateEstimator
 from traffic_safety.risk_metrics import RiskMetricsEstimator
 from traffic_safety.csv_writer import CsvResultWriter
-from traffic_safety.safety_rules import SafetyRuleEngine
 from traffic_safety.risk_event_writer import RiskEventCsvWriter
 from traffic_safety.risk_timeline_writer import RiskTimelineCsvWriter
 from traffic_safety.interaction_writer import InteractionCsvWriter
+from traffic_safety.binary_timeline_writer import BinaryTimelineCsvWriter
+from traffic_safety.binary_rules import DANGER
+from traffic_safety.rule_engines import (
+    BINARY,
+    ENGINE_NAMES,
+    LEGACY,
+    binary_events_as_rule_results,
+    create_rule_engine,
+    resolve_engine_name,
+)
+from traffic_safety.output_paths import (
+    binary_timeline_path,
+    ensure_no_existing_outputs,
+    output_files,
+    redirect_outputs,
+)
 
 
 from scripts.settings import CURRENT_CONFIGURATION
@@ -94,7 +110,71 @@ def get_frame_risk_level(risk_events) -> str:
 
     return "ok"
 
-def main():
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Traffic safety pipeline (detection, tracking, rules, CSV export)."
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Scenario YAML (default: CURRENT_CONFIGURATION from scripts/settings.py).",
+    )
+    parser.add_argument(
+        "--rule-engine",
+        choices=ENGINE_NAMES,
+        default=None,
+        help="Rule engine: 'legacy' (SAFE/WARNING/DANGER) or 'binary' (OK/DANGER). "
+             "Default: config rules.engine, otherwise 'legacy'.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Write all outputs under this directory instead of the paths in the YAML.",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Allow overwriting existing output files (binary mode / --output-dir).",
+    )
+    parser.add_argument(
+        "--binary-overlay",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Draw the binary OK/DANGER decision on the output video (binary mode only).",
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        help="Process only the first N frames (smoke tests).",
+    )
+    return parser.parse_args(argv)
+
+
+def draw_binary_decision(frame, risk_binary: int, events) -> None:
+    if risk_binary == DANGER:
+        rules = sorted({event.rule.value for event in events})
+        text = "DANGER | " + ", ".join(rules)
+        color = (0, 0, 255)
+    else:
+        text = "OK"
+        color = (0, 200, 0)
+
+    cv2.putText(
+        frame,
+        text,
+        (30, 90),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.9,
+        color,
+        2,
+    )
+
+
+def main(argv=None):
+    args = parse_args(argv)
+
     logger.info("Starting traffic safety pipeline")
 
     # ---------------------------------------------------------
@@ -103,22 +183,33 @@ def main():
 
     logger.info("Loading configuration...")
 
-    config = load_config(CURRENT_CONFIGURATION)
+    config_path = args.config or CURRENT_CONFIGURATION
+    config = load_config(config_path)
 
-    logger.info("Configuration loaded")
+    logger.info(f"Configuration loaded: {config_path}")
+
+    engine_name = resolve_engine_name(args.rule_engine, config)
+
+    if args.output_dir is not None:
+        config = redirect_outputs(config, args.output_dir)
+        logger.info(f"Outputs redirected to: {args.output_dir}")
+
+    # Legacy mode without --output-dir keeps the original behaviour
+    # (outputs are overwritten). Otherwise refuse to overwrite.
+    if (engine_name == BINARY or args.output_dir is not None) and not args.overwrite:
+        ensure_no_existing_outputs(output_files(config, engine_name))
+
+    if args.max_frames is not None and args.max_frames <= 0:
+        raise ValueError("--max-frames must be positive")
 
     logger.info(
-    "Creating safety rule engine..."
+        f"Creating rule engine: {engine_name}"
     )
 
-    safety_rule_engine = SafetyRuleEngine(
-        warning_ttc_s=config["risk"]["warning_ttc_s"],
-        danger_ttc_s=config["risk"]["danger_ttc_s"],
-        fallback_distance_m=config["risk"]["fallback_distance_m"],
-    )
+    rule_engine = create_rule_engine(engine_name, config)
 
     logger.info(
-        "Safety rule engine ready"
+        "Rule engine ready"
     )
 
     # ---------------------------------------------------------
@@ -289,29 +380,44 @@ def main():
         "CSV result writer ready"
     )
 
-    logger.info(
-        "Creating risk event CSV writer..."
-    )
+    risk_event_writer = None
+    risk_timeline_writer = None
+    binary_timeline_writer = None
 
-    risk_event_writer = RiskEventCsvWriter(
-        config["data_output"]["risk_csv"]
-    )
+    if engine_name == LEGACY:
+        logger.info(
+            "Creating risk event CSV writer..."
+        )
 
-    logger.info(
-        "Risk event CSV writer ready"
-    )
+        risk_event_writer = RiskEventCsvWriter(
+            config["data_output"]["risk_csv"]
+        )
 
-    logger.info(
-        "Creating risk timeline CSV writer..."
-    )
+        logger.info(
+            "Risk event CSV writer ready"
+        )
 
-    risk_timeline_writer = RiskTimelineCsvWriter(
-        config["data_output"]["risk_timeline_csv"]
-    )
+        logger.info(
+            "Creating risk timeline CSV writer..."
+        )
 
-    logger.info(
-        "Risk timeline CSV writer ready"
-    )
+        risk_timeline_writer = RiskTimelineCsvWriter(
+            config["data_output"]["risk_timeline_csv"]
+        )
+
+        logger.info(
+            "Risk timeline CSV writer ready"
+        )
+    else:
+        binary_csv = binary_timeline_path(config)
+
+        binary_timeline_writer = BinaryTimelineCsvWriter(
+            binary_csv
+        )
+
+        logger.info(
+            f"Binary timeline CSV writer ready: {binary_csv}"
+        )
 
     study_metadata = config["study_metadata"]
 
@@ -456,13 +562,23 @@ def main():
 
     try:
         with tqdm(
-            total=total_frames,
+            total=(
+                min(total_frames, args.max_frames)
+                if args.max_frames is not None
+                else total_frames
+            ),
             desc="Processing video",
             unit="frame",
             dynamic_ncols=True,
         ) as progress_bar:
 
             while True:
+                if (
+                    args.max_frames is not None
+                    and frame_idx >= args.max_frames
+                ):
+                    break
+
                 ret, frame = cap.read()
 
                 if not ret:
@@ -484,14 +600,29 @@ def main():
                         timestamp,
                     )
                 )
-                risk_events = safety_rule_engine.evaluate(
-                    objects
-                )
+                if engine_name == LEGACY:
+                    risk_events = rule_engine.evaluate(
+                        objects
+                    )
+                    interaction_rule_results = risk_events
+                else:
+                    binary_events = rule_engine.evaluate(
+                        objects
+                    )
+                    risk_binary = rule_engine.frame_label(
+                        binary_events
+                    )
+                    interaction_rule_results = (
+                        binary_events_as_rule_results(binary_events)
+                    )
+                    # Legacy event overlay below is not used in binary mode.
+                    risk_events = []
+
                 interaction_writer.write_frame(
                     frame_idx=frame_idx,
                     timestamp_s=timestamp,
                     objects=objects,
-                    risk_events=risk_events,
+                    risk_events=interaction_rule_results,
                     pipeline_ok=True,
                 )
                 csv_writer.write_frame(
@@ -500,21 +631,29 @@ def main():
                     objects=objects,
                 )
 
-                risk_event_writer.write_frame(
-                    frame_idx=frame_idx,
-                    timestamp=timestamp,
-                    events=risk_events,
-                )
-                frame_risk_level = get_frame_risk_level(
-                    risk_events
-                )
+                if engine_name == LEGACY:
+                    risk_event_writer.write_frame(
+                        frame_idx=frame_idx,
+                        timestamp=timestamp,
+                        events=risk_events,
+                    )
+                    frame_risk_level = get_frame_risk_level(
+                        risk_events
+                    )
 
-                risk_timeline_writer.write_frame(
-                    frame_idx=frame_idx,
-                    timestamp=timestamp,
-                    risk_level=frame_risk_level,
-                    risk_events=risk_events,
-                )
+                    risk_timeline_writer.write_frame(
+                        frame_idx=frame_idx,
+                        timestamp=timestamp,
+                        risk_level=frame_risk_level,
+                        risk_events=risk_events,
+                    )
+                else:
+                    binary_timeline_writer.write_frame(
+                        frame_idx=frame_idx,
+                        timestamp=timestamp,
+                        risk_binary=risk_binary,
+                        events=binary_events,
+                    )
 
                 frame_idx += 1
 
@@ -690,6 +829,13 @@ def main():
                         2,
                     )
 
+                if engine_name == BINARY and args.binary_overlay:
+                    draw_binary_decision(
+                        frame,
+                        risk_binary,
+                        binary_events,
+                    )
+
                 # ---------------------------------------------
                 # Counters
                 # ---------------------------------------------
@@ -770,8 +916,13 @@ def main():
         cap.release()
         writer.release()
         csv_writer.close()
-        risk_event_writer.close()
-        risk_timeline_writer.close()
+        for optional_writer in (
+            risk_event_writer,
+            risk_timeline_writer,
+            binary_timeline_writer,
+        ):
+            if optional_writer is not None:
+                optional_writer.close()
         interaction_writer.close()
         cv2.destroyAllWindows()
 
