@@ -48,6 +48,17 @@ class StateEstimator:
             )
         )
 
+    @staticmethod
+    def _state_key(obj) -> tuple[str, int]:
+        """
+        Key for all per-object history.
+
+        The tracker may keep the same track_id when the detector changes
+        the class (e.g. person <-> motorcycle). Keying by (category, track_id)
+        prevents a vehicle from inheriting a pedestrian state and vice versa.
+        """
+        return (obj.category, obj.track_id)
+
     def update(self, obj):
         """
         Estimate and stabilize the semantic state of an object.
@@ -66,7 +77,7 @@ class StateEstimator:
     # ---------------------------------------------------------
 
     def _update_pedestrian(self, obj):
-        track_id = obj.track_id
+        track_id = self._state_key(obj)
 
         current_zone = obj.zone
         previous_zone = self.previous_zones.get(
@@ -135,7 +146,7 @@ class StateEstimator:
     # ---------------------------------------------------------
 
     def _update_vehicle(self, obj):
-        track_id = obj.track_id
+        track_id = self._state_key(obj)
         current_zone = obj.zone
         current_speed = obj.speed_kmh
 
@@ -217,7 +228,7 @@ class StateEstimator:
 
     def _calculate_speed_trend(
         self,
-        track_id: int,
+        track_id: tuple[str, int],
     ) -> float:
         """
         Compare average speed from the first half
@@ -256,7 +267,7 @@ class StateEstimator:
 
     def _stabilize_state(
         self,
-        track_id: int,
+        track_id: tuple[str, int],
         candidate_state,
         confirm_frames: int | None = None,
     ):
@@ -365,33 +376,31 @@ class StateEstimator:
     def remove_track(
         self,
         track_id: int,
+        category: str | None = None,
     ):
         """
         Remove all stored state for a track.
         Useful later when old tracks are cleaned up.
+
+        History is keyed by (category, track_id); with category=None
+        the track is removed for every category.
         """
 
-        self.previous_zones.pop(
-            track_id,
-            None,
+        stores = (
+            self.previous_zones,
+            self.previous_states,
+            self.pending_states,
+            self.pending_counts,
+            self.speed_history,
         )
 
-        self.previous_states.pop(
-            track_id,
-            None,
-        )
+        for store in stores:
+            keys = [
+                key
+                for key in list(store)
+                if key[1] == track_id
+                and (category is None or key[0] == category)
+            ]
 
-        self.pending_states.pop(
-            track_id,
-            None,
-        )
-
-        self.pending_counts.pop(
-            track_id,
-            None,
-        )
-
-        self.speed_history.pop(
-            track_id,
-            None,
-        )
+            for key in keys:
+                store.pop(key, None)
