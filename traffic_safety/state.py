@@ -3,11 +3,20 @@ from enum import Enum
 
 
 class PedestrianState(str, Enum):
+    # ENTERING / LEAVING were removed (Phase II, B1): they were unreachable
+    # under the 3-frame confirmation. Temporal information about entering
+    # and leaving the crosswalk is provided by traffic_safety/motion_features.py.
     OUTSIDE = "outside"
     WAITING = "waiting"
-    ENTERING = "entering"
     CROSSING = "crossing"
-    LEAVING = "leaving"
+
+
+PEDESTRIAN_WAITING_ZONES = frozenset(
+    {
+        "pedestrian_waiting_left",
+        "pedestrian_waiting_right",
+    }
+)
 
 
 class VehicleState(str, Enum):
@@ -33,8 +42,7 @@ class StateEstimator:
         self.state_confirm_frames = state_confirm_frames
         self.stopped_confirm_frames = stopped_confirm_frames
 
-        # Previous information about each tracked object
-        self.previous_zones = {}
+        # Previous (stabilized) state of each tracked object
         self.previous_states = {}
 
         # Candidate states waiting for confirmation
@@ -80,57 +88,25 @@ class StateEstimator:
         track_id = self._state_key(obj)
 
         current_zone = obj.zone
-        previous_zone = self.previous_zones.get(
-            track_id
-        )
 
         # ---------------------------------------------
-        # Candidate state
+        # Candidate state (depends only on the current zone)
         # ---------------------------------------------
 
-        if current_zone is None:
+        if current_zone in PEDESTRIAN_WAITING_ZONES:
             candidate_state = (
-                PedestrianState.OUTSIDE
+                PedestrianState.WAITING
             )
 
-        elif current_zone in {
-            "pedestrian_waiting_left",
-            "pedestrian_waiting_right",
-        }:
-            if previous_zone == "crosswalk":
-                candidate_state = (
-                    PedestrianState.LEAVING
-                )
-            else:
-                candidate_state = (
-                    PedestrianState.WAITING
-                )
-
         elif current_zone == "crosswalk":
-            if previous_zone in {
-                "pedestrian_waiting_left",
-                "pedestrian_waiting_right",
-            }:
-                candidate_state = (
-                    PedestrianState.ENTERING
-                )
-            else:
-                candidate_state = (
-                    PedestrianState.CROSSING
-                )
+            candidate_state = (
+                PedestrianState.CROSSING
+            )
 
         else:
             candidate_state = (
                 PedestrianState.OUTSIDE
             )
-
-        # ---------------------------------------------
-        # Store current zone
-        # ---------------------------------------------
-
-        self.previous_zones[
-            track_id
-        ] = current_zone
 
         # ---------------------------------------------
         # Stabilize state
@@ -387,7 +363,6 @@ class StateEstimator:
         """
 
         stores = (
-            self.previous_zones,
             self.previous_states,
             self.pending_states,
             self.pending_counts,

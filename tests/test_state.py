@@ -53,17 +53,19 @@ class CategorySeparationTest(unittest.TestCase):
         self.assertEqual(states[0], PedestrianState.WAITING)
         self.assertTrue(all(state in PEDESTRIAN_STATES for state in states))
 
-    def test_pedestrian_zone_history_not_shared_with_vehicle(self):
+    def test_state_history_is_keyed_by_category(self):
         estimator = make_estimator()
         estimator.update(pedestrian(5, "pedestrian_waiting_left"))
         estimator.update(vehicle(5, "crosswalk", speed_kmh=10.0))
 
-        # Pedestrian history continues from its own previous zone.
         self.assertEqual(
-            estimator.previous_zones[("pedestrian", 5)],
-            "pedestrian_waiting_left",
+            estimator.previous_states[("pedestrian", 5)],
+            PedestrianState.WAITING,
         )
-        self.assertNotIn(("vehicle", 5), estimator.previous_zones)
+        self.assertEqual(
+            estimator.previous_states[("vehicle", 5)],
+            VehicleState.PASSING,
+        )
 
     def test_same_id_different_categories_in_one_frame(self):
         estimator = make_estimator()
@@ -112,12 +114,10 @@ class TransitionsUnchangedTest(unittest.TestCase):
         states = [estimator.update(pedestrian(1, zone)) for zone in zones]
 
         self.assertEqual(states[:5], [PedestrianState.WAITING] * 5)
-        # Known issue (S2): the first crosswalk frame yields an ENTERING
-        # candidate that can never be confirmed; it resets the counter, so
-        # CROSSING is confirmed only on the 4th crosswalk frame.
-        self.assertEqual(states[5:8], [PedestrianState.WAITING] * 3)
-        self.assertEqual(states[8:], [PedestrianState.CROSSING] * 2)
-        self.assertNotIn(PedestrianState.ENTERING, states)
+        # After B1 CROSSING is confirmed on the 3rd crosswalk frame
+        # (before B1 an unconfirmable ENTERING candidate delayed it by 1 frame).
+        self.assertEqual(states[5:7], [PedestrianState.WAITING] * 2)
+        self.assertEqual(states[7:], [PedestrianState.CROSSING] * 3)
 
     def test_short_flicker_does_not_change_state(self):
         estimator = make_estimator()
@@ -163,6 +163,66 @@ class RemoveTrackTest(unittest.TestCase):
 
         self.assertIn(("pedestrian", 8), estimator.previous_states)
         self.assertNotIn(("vehicle", 8), estimator.previous_states)
+
+
+class PedestrianSimplifiedStatesTest(unittest.TestCase):
+    """B1: pedestrian states are OUTSIDE / WAITING / CROSSING only."""
+
+    def run_zones(self, zones, track_id=1):
+        estimator = make_estimator()
+        return [estimator.update(pedestrian(track_id, zone)) for zone in zones]
+
+    def test_enum_has_three_states(self):
+        self.assertEqual(
+            {state.value for state in PedestrianState},
+            {"outside", "waiting", "crossing"},
+        )
+
+    def test_full_cycle_waiting_crossing_waiting(self):
+        zones = (
+            ["pedestrian_waiting_left"] * 4
+            + ["crosswalk"] * 6
+            + ["pedestrian_waiting_right"] * 5
+        )
+        states = self.run_zones(zones)
+        W, C = PedestrianState.WAITING, PedestrianState.CROSSING
+        self.assertEqual(states, [W] * 4 + [W, W] + [C] * 4 + [C, C] + [W] * 3)
+
+    def test_first_observation_is_accepted_immediately(self):
+        self.assertEqual(self.run_zones(["crosswalk"])[0], PedestrianState.CROSSING)
+        self.assertEqual(self.run_zones([None])[0], PedestrianState.OUTSIDE)
+        self.assertEqual(
+            self.run_zones(["pedestrian_waiting_right"])[0],
+            PedestrianState.WAITING,
+        )
+
+    def test_unknown_zone_is_outside(self):
+        # e.g. a pedestrian walking on the road inside vehicle_approach
+        states = self.run_zones(["vehicle_approach"] * 3)
+        self.assertEqual(states, [PedestrianState.OUTSIDE] * 3)
+
+    def test_two_frame_flicker_is_ignored(self):
+        zones = ["crosswalk"] * 4 + [None] * 2 + ["crosswalk"] * 2
+        states = self.run_zones(zones)
+        self.assertTrue(all(state == PedestrianState.CROSSING for state in states))
+
+    def test_three_frame_change_is_confirmed(self):
+        zones = ["crosswalk"] * 4 + [None] * 3
+        states = self.run_zones(zones)
+        self.assertEqual(states[-1], PedestrianState.OUTSIDE)
+        self.assertEqual(states[-2], PedestrianState.CROSSING)
+
+    def test_alternating_candidates_reset_confirmation(self):
+        # waiting -> crosswalk, None, crosswalk, None ... never 3 in a row
+        zones = ["pedestrian_waiting_left"] * 3 + ["crosswalk", None] * 4
+        states = self.run_zones(zones)
+        self.assertTrue(all(state == PedestrianState.WAITING for state in states))
+
+    def test_states_are_plain_strings_for_legacy_consumers(self):
+        # SafetyRuleEngine and build_frame_dataset compare states as strings.
+        state = self.run_zones(["crosswalk"])[0]
+        self.assertEqual(state, "crossing")
+        self.assertIn(state, {"entering", "crossing"})
 
 
 if __name__ == "__main__":
