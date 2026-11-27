@@ -35,8 +35,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from traffic_safety.event_metrics import event_metrics, frame_metrics  # noqa: E402
 from compute_motion_features import git_state, markdown_table, sha256  # noqa: E402
+import rf_feature_comparison as rfc  # noqa: E402
 from rf_feature_comparison import (  # noqa: E402
-    DATASET, IMPUTER_PARAMS, RF_PARAMS, RULES_NAME, RULES_V1, SEEDS, VARIANTS,
+    IMPUTER_PARAMS, RF_PARAMS, RULES_NAME, SEEDS, VARIANTS,
     load_data, make_model,
 )
 
@@ -184,17 +185,25 @@ def fmt(df, d=3):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--output-dir", default="outputs/ml_experiment/rf_threshold_selection_v1")
+    ap.add_argument("--dataset", default=str(rfc.DATASET))
+    ap.add_argument("--dataset-manifest", default=str(rfc.DATASET_MANIFEST))
+    ap.add_argument("--rules-v1", default=str(rfc.RULES_V1))
+    ap.add_argument("--rules-column", default=rfc.RULES_COLUMN)
+    ap.add_argument("--phase3-predictions", default=str(PHASE3),
+                    help="frame_predictions.csv of the matching rf_feature_comparison run (t=0.5 reproducibility gate)")
     args = ap.parse_args()
+    rfc.configure_inputs(args)
+    phase3 = Path(args.phase3_predictions)
     out = Path(args.output_dir)
     if out.exists():
         raise SystemExit(f"{out} already exists; choose another --output-dir")
 
-    inputs = {str(p): sha256(p) for p in (DATASET, RULES_V1, PHASE3)}
+    inputs = {str(p): sha256(p) for p in (rfc.DATASET, rfc.RULES_V1, phase3)}
     data = load_data()
     pred, folds, inner_oracle = run(data)
 
     # Reproducibility gate: t=0.5 predictions must equal rf_feature_comparison_v1.
-    old = pd.read_csv(PHASE3)
+    old = pd.read_csv(phase3)
     old = old[old["system"] != RULES_NAME]
     new05 = pred[pred["system"].str.endswith("_t0.5")].assign(system=lambda d: d["system"].str.replace("_t0.5", "", regex=False))
     chk = old.merge(new05, on=["system", "seed", "video_id", "frame_idx"], suffixes=("_old", "_new"), validate="one_to_one")

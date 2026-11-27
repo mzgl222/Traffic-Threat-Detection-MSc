@@ -57,6 +57,7 @@ SEEDS = [42, 43, 44, 45, 46]  # fixed before running; 42 = notebook seed
 RF_PARAMS = dict(n_estimators=200, max_depth=8, min_samples_leaf=5, class_weight="balanced", n_jobs=-1)
 IMPUTER_PARAMS = dict(strategy="median", add_indicator=True, keep_empty_features=True)
 RULES_NAME = "RULES_V1"
+RULES_COLUMN = "new_pred"  # prediction column in RULES_V1 (overridable via --rules-column)
 
 
 def make_model(seed: int) -> Pipeline:
@@ -66,8 +67,16 @@ def make_model(seed: int) -> Pipeline:
     ])
 
 
+def configure_inputs(args) -> None:
+    """Optional input overrides (defaults = the original Phase III inputs)."""
+    global DATASET, DATASET_MANIFEST, RULES_V1, RULES_COLUMN
+    DATASET, DATASET_MANIFEST = Path(args.dataset), Path(args.dataset_manifest)
+    RULES_V1, RULES_COLUMN = Path(args.rules_v1), args.rules_column
+
+
 def load_data() -> pd.DataFrame:
-    expected = json.loads(DATASET_MANIFEST.read_text())["output_sha256"]
+    meta = json.loads(DATASET_MANIFEST.read_text())
+    expected = meta.get("output_sha256") or meta["dataset"]["sha256"]
     if sha256(DATASET) != expected:
         raise SystemExit(f"{DATASET} differs from its B4 manifest")
     data = pd.read_csv(DATASET, low_memory=False)
@@ -79,7 +88,7 @@ def load_data() -> pd.DataFrame:
 
     rules = pd.read_csv(RULES_V1)
     merged = data.merge(
-        rules[KEY + ["risk_gt", "new_pred"]].rename(columns={"risk_gt": "_gt_rules", "new_pred": "pred_rules_v1"}),
+        rules[KEY + ["risk_gt", RULES_COLUMN]].rename(columns={"risk_gt": "_gt_rules", RULES_COLUMN: "pred_rules_v1"}),
         on=KEY, how="left", validate="one_to_one",
     )
     if merged["pred_rules_v1"].isna().any() or (merged["_gt_rules"] != merged["risk_gt"]).any():
@@ -248,7 +257,12 @@ Pooled F1 difference per seed (RF_B − RF_A): {seed_pooled_diff}
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--output-dir", default="outputs/ml_experiment/rf_feature_comparison_v1")
+    parser.add_argument("--dataset", default=str(DATASET))
+    parser.add_argument("--dataset-manifest", default=str(DATASET_MANIFEST))
+    parser.add_argument("--rules-v1", default=str(RULES_V1))
+    parser.add_argument("--rules-column", default=RULES_COLUMN)
     args = parser.parse_args()
+    configure_inputs(args)
     out = Path(args.output_dir)
     if out.exists():
         raise SystemExit(f"{out} already exists; choose another --output-dir")
@@ -307,7 +321,7 @@ def main() -> None:
         "rf_params": RF_PARAMS,
         "imputer_params": IMPUTER_PARAMS,
         "decision_threshold": 0.5,
-        "reference": {"system": RULES_NAME, "file": str(RULES_V1), "column": "new_pred",
+        "reference": {"system": RULES_NAME, "file": str(RULES_V1), "column": RULES_COLUMN,
                       "params": {"arrival_time_s": 4.0, "moving_speed_kmh": 2.0}},
         "event_definitions": "traffic_safety/event_metrics.py docstring",
         "tuning": "none",
