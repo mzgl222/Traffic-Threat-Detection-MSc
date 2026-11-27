@@ -10,7 +10,7 @@ import yaml
 from traffic_safety.detector import ObjectTracker
 from traffic_safety.homography import HomographyTransformer
 from traffic_safety.pipeline import TrafficSafetyPipeline
-from traffic_safety.speed import SpeedEstimator
+from traffic_safety.speed import METHODS as SPEED_METHODS, resolve_speed_settings, speed_estimator_from_config
 from traffic_safety.trajectory import TrajectoryStore
 from traffic_safety.zones import ZoneManager
 from traffic_safety.state import StateEstimator
@@ -142,6 +142,21 @@ def parse_args(argv=None):
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Draw the binary OK/DANGER decision on the output video (binary mode only).",
+    )
+    parser.add_argument(
+        "--speed-method",
+        choices=SPEED_METHODS,
+        default=None,
+        help="Vehicle speed estimation: 'median_step' (original) or 'regression' "
+             "(least squares over a causal time window). "
+             "Default: config tracking.speed_method, otherwise 'median_step'.",
+    )
+    parser.add_argument(
+        "--speed-window-s",
+        type=float,
+        default=None,
+        help="Time window [s] for --speed-method regression "
+             "(default: config tracking.speed_window_s, otherwise 0.5).",
     )
     parser.add_argument(
         "--max-frames",
@@ -283,13 +298,16 @@ def main(argv=None):
         "Creating speed estimator..."
     )
 
-    speed_estimator = SpeedEstimator(
-        history_length=config["tracking"]["history_length"],
-        speed_history_length=config["tracking"]["speed_history_length"]
+    speed_settings = resolve_speed_settings(
+        config["tracking"], args.speed_method, args.speed_window_s
+    )
+    speed_estimator = speed_estimator_from_config(
+        config["tracking"], args.speed_method, args.speed_window_s
     )
 
     logger.info(
-        "Speed estimator ready"
+        f"Speed estimator ready (method={speed_settings['method']}, "
+        f"window_s={speed_settings['window_s']})"
     )
 
     logger.info(

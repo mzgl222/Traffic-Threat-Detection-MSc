@@ -49,7 +49,7 @@ from traffic_safety.binary_rules import BinaryRuleEngine  # noqa: E402
 from traffic_safety.homography import HomographyTransformer  # noqa: E402
 from traffic_safety.risk_metrics import RiskMetricsEstimator, distance_to_line  # noqa: E402
 from traffic_safety.safety_rules import SafetyRuleEngine  # noqa: E402
-from traffic_safety.speed import SpeedEstimator  # noqa: E402
+from traffic_safety.speed import speed_estimator_from_config  # noqa: E402
 from traffic_safety.zones import ZoneManager  # noqa: E402
 from evaluate_binary_rules import predict_frames  # noqa: E402
 
@@ -78,7 +78,8 @@ def state_value(state):
     return None if state is None else getattr(state, "value", state)
 
 
-def replay(tracks: pd.DataFrame, config: dict, homography: dict, state_cls, zone_source: str = "recompute") -> pd.DataFrame:
+def replay(tracks: pd.DataFrame, config: dict, homography: dict, state_cls, zone_source: str = "recompute",
+           speed_method: str | None = None, speed_window_s: float | None = None) -> pd.DataFrame:
     """Replay one recording. Returns replayed columns (unrounded).
 
     zone_source="recompute": zone from ZoneManager on the saved (0.01 px rounded) image point;
@@ -86,8 +87,7 @@ def replay(tracks: pd.DataFrame, config: dict, homography: dict, state_cls, zone
     unrounded coordinates; zones do not depend on the homography)."""
     H = HomographyTransformer(homography["image_points"], homography["world_points"])
     zones = ZoneManager(config["zones"])
-    speed = SpeedEstimator(history_length=config["tracking"]["history_length"],
-                           speed_history_length=config["tracking"]["speed_history_length"])
+    speed = speed_estimator_from_config(config["tracking"], speed_method, speed_window_s)
     risk = RiskMetricsEstimator(**RISK_PARAMS)
     states = state_cls(**STATE_PARAMS)
     ref = config["crosswalk"]["reference_line_image"]
