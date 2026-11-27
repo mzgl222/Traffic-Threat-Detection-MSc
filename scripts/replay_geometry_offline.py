@@ -323,13 +323,16 @@ def risk_level(events) -> str:
     return "ok"
 
 
-def run_scene(config: dict, homography: dict, state_cls, out_dir: Path, tag: str, config_path: Path) -> dict:
+def run_scene(config: dict, homography: dict, state_cls, out_dir: Path, tag: str, config_path: Path,
+              tracks_path: str | Path | None = None, speed_method: str | None = None,
+              speed_window_s: float | None = None) -> dict:
     """Replay one scene and write all per-scene outputs with the original writers."""
     paths = config["data_output"]
     meta = config["study_metadata"]
-    tracks = pd.read_csv(paths["csv"], low_memory=False)
+    tracks = pd.read_csv(tracks_path or paths["csv"], low_memory=False)
     frames = pd.read_csv(paths["interaction_frames_csv"])
-    rep = replay(tracks, config, homography, state_cls, zone_source="saved")
+    rep = replay(tracks, config, homography, state_cls, zone_source="saved",
+                 speed_method=speed_method, speed_window_s=speed_window_s)
 
     out_dir.mkdir(parents=True, exist_ok=False)
     f = {k: out_dir / f"{k}_{tag}.csv" for k in
